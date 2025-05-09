@@ -1,0 +1,184 @@
+// CONSULTAS BÁSICAS PARA FACTECNO MONGODB
+
+// Tarea4_studiantes_habitos_hbase.py
+// Construccion de consultas para validacion en Base de datos Mongo
+// Diana Marcela Castiblanco Sanchez
+// Grupo 202016911_17
+
+// 1.1 Inserción de un nuevo producto
+db.productos.insertOne({
+  _id: 101,
+  nombre: "Steam Deck OLED",
+  marca: "Valve",
+  categoria_id: 6,
+  precio: 549.99,
+  stock: 15,
+  especificaciones: {
+    pantalla: "7.4 pulgadas OLED",
+    procesador: "AMD APU Zen 2",
+    ram: "16GB",
+    almacenamiento: "512GB NVMe SSD",
+    gpu: "AMD RDNA 2"
+  },
+  colores_disponibles: ["Negro"],
+  fecha_lanzamiento: new Date("2023-11-16"),
+  en_oferta: false,
+  descuento: 0
+})
+
+// 1.2 Selección de productos - Mostrar todos los smartphones
+db.productos.find({ categoria_id: 1 })
+
+// 1.3 Selección con proyección - Mostrar solo nombre y precio de laptops
+db.productos.find(
+  { categoria_id: 2 },
+  { nombre: 1, precio: 1, _id: 0 }
+)
+
+// 1.4 Actualización de un producto - Actualizar stock y precio de un producto
+db.productos.updateOne(
+  { _id: 1 },
+  { 
+    $set: { 
+      stock: 45,
+      precio: 949.99,
+      "especificaciones.ram": "12GB"
+    } 
+  }
+)
+
+// 1.5 Actualización de múltiples productos - Aplicar un descuento a todos los productos Apple
+db.productos.updateMany(
+  { marca: "Apple" },
+  { 
+    $set: { en_oferta: true },
+    $mul: { precio: 0.9 } 
+  }
+)
+// Reducir el precio en un 10%
+// 1.6 Eliminación de un producto
+db.productos.deleteOne({ _id: 101 })
+
+
+// 2. CONSULTAS CON FILTROS Y OPERADORES
+
+// 2.1 Filtro con operadores de comparación - Productos con precio entre 500 y 1000
+db.productos.find({
+  precio: { $gte: 500, $lte: 1000 }
+})
+
+// 2.2 Filtro con operadores lógicos - Smartphones Samsung o Xiaomi en oferta
+db.productos.find({
+  categoria_id: 1,
+  marca: { $in: ["Samsung", "Xiaomi"] },
+  en_oferta: true
+})
+
+// 2.3 Filtro con expresiones regulares - Buscar productos que contengan "Pro" en el nombre
+db.productos.find({
+  nombre: /Pro/i
+})
+
+// 2.4 Filtro con campos anidados - Productos con almacenamiento de 1TB o más
+db.productos.find({
+  "especificaciones.almacenamiento": /1TB|2TB|4TB/i
+})
+
+// 3. CONSULTAS DE AGREGACIÓN
+
+// 3.1 Contar productos por categoría
+db.productos.aggregate([
+  { $group: { _id: "$categoria_id", total: { $sum: 1 } } },
+  { $lookup: {
+      from: "categorias",
+      localField: "_id",
+      foreignField: "_id",
+      as: "categoria_info"
+    }
+  },
+  { $project: {
+      categoria: { $arrayElemAt: ["$categoria_info.nombre", 0] },
+      total: 1,
+      _id: 0
+    }
+  },
+  { $sort: { total: -1 } }
+])
+
+// 3.2 Calcular el valor total del inventario
+db.productos.aggregate([
+  { $project: { valorInventario: { $multiply: ["$precio", "$stock"] } } },
+  { $group: { _id: null, valorTotal: { $sum: "$valorInventario" } } }
+])
+
+// 3.3 Calcular el valor del inventario por marca
+db.productos.aggregate([
+  { $project: {
+      marca: 1,
+      valorInventario: { $multiply: ["$precio", "$stock"] }
+    }
+  },
+  { $group: {
+      _id: "$marca",
+      valorTotal: { $sum: "$valorInventario" },
+      cantidadProductos: { $sum: 1 }
+    }
+  },
+  { $sort: { valorTotal: -1 } }
+])
+
+// 3.4 Promedio de precio por categoría
+db.productos.aggregate([
+  { $group: {
+      _id: "$categoria_id",
+      precioPromedio: { $avg: "$precio" },
+      precioMinimo: { $min: "$precio" },
+      precioMaximo: { $max: "$precio" }
+    }
+  },
+  { $lookup: {
+      from: "categorias",
+      localField: "_id",
+      foreignField: "_id",
+      as: "categoria_info"
+    }
+  },
+  { $project: {
+      categoria: { $arrayElemAt: ["$categoria_info.nombre", 0] },
+      precioPromedio: { $round: ["$precioPromedio", 2] },
+      precioMinimo: 1,
+      precioMaximo: 1,
+      _id: 0
+    }
+  },
+  { $sort: { precioPromedio: -1 } }
+])
+
+// 3.5 Productos más vendidos (basado en pedidos)
+db.pedidos.aggregate([
+  { $unwind: "$productos" },
+  { $group: {
+      _id: "$productos.producto_id",
+      unidadesVendidas: { $sum: "$productos.cantidad" },
+      ingresoTotal: { $sum: { $multiply: ["$productos.cantidad", "$productos.precio_unitario"] } }
+    }
+  },
+  { $lookup: {
+      from: "productos",
+      localField: "_id",
+      foreignField: "_id",
+      as: "infoProducto"
+    }
+  },
+  { $project: {
+      producto: { $arrayElemAt: ["$infoProducto.nombre", 0] },
+      marca: { $arrayElemAt: ["$infoProducto.marca", 0] },
+      unidadesVendidas: 1,
+      ingresoTotal: 1,
+      _id: 0
+    }
+  },
+  { $sort: { unidadesVendidas: -1 } },
+  { $limit: 10 }
+])
+
